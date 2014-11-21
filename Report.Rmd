@@ -203,7 +203,7 @@ The out of sample error is the difference between the accuracy obtained and unit
 oosError <- 1 - accuracy
 oosError
 ```
-The accuracy of the model is `r round(accuracy*100.0,2)`% and the out-of-sample error based on the cross validation dataset is `r round(oosError*100.0,2)`%. The accuracy and the out of sample error is healthy. Hence, this model can be applied to real test set.
+The accuracy of the model is 99.37% and the out-of-sample error based on the cross validation dataset is 0.63%. The accuracy and the out of sample error is healthy. Hence, this model can be applied to real test set.
 
 
 ## Prediction on Test Data
