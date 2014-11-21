@@ -1,0 +1,214 @@
+Practical Machine Learning Course Assignment
+---------------------------------------------------------------
+
+##Goal
+
+Using devices such as *Jawbone Up, Nike FuelBand,* and *Fitbit* it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior. 
+
+The training data for this project are available here: 
+
+<https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv>
+
+The test data are available here: 
+
+<https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv>
+
+More information is available at
+
+<http://groupware.les.inf.puc-rio.br/har>
+
+The aim of the project is to predict the "classe" variable in training data using other variables. This document is the report on the analyis of the training data, methods used in cross validation and prediction of "classe" variable in the test data.
+
+
+## Getting Started
+
+###Libraries Used
+
+The libraries used in this operation are `caret`, `Hmisc`, `corrplot` and `randomForest`. The `caret` and `Hmisc` libraries are used to access the functions associated with machine learning and data cleaning. The `corrplot` library is used to make a grid plot of the correlation among the variables. The `randomForest` library is used to create the random forest model of the training data on which the test data can be predicted.
+
+```{r, message=FALSE}
+library(caret)
+library(Hmisc)
+library(corrplot)
+library(randomForest)
+```
+
+###Data Loading
+
+Now, we load the training data. The `read.csv` function in R loads the data in a csv file into a data frame. We assign the blank values with "NA" so that it is easier to eliminate them when necessary. The `na.strings` function replaces the occurance of blank strings with "NA". The training data is loaded into `wmTrainingComplete` variable.
+
+```{r}
+wmTrainingComplete <- read.csv("pml-training.csv", header = TRUE, na.strings = c("NA", ""))
+```
+
+We load the testing data into `wmTestingComplete` in a similar way. Even here, we follow the same convention of replacing blank values with NA.
+
+```{r}
+wmTestingComplete <- read.csv("pml-testing.csv", header = TRUE, na.strings = c("NA", ""))
+```
+
+
+##Data Analysis
+We can use the describe function to have a closer look at the data. 
+```{r,  results="hide"}
+describe(wmTrainingComplete)
+```
+In the training data set, we notice that a lot of columns are blank values, i.e. have NA values. These columns do not contribute to our prediction. The `is.na()` function returns whether the current data field is blank. By using colSums function, we determine whether a given variable has primarily blank variables. Thus, the variable invColumns will be a vector with the number of columns with boolean values denoting whether the given column is blank or not.
+
+```{r}
+dim(wmTrainingComplete)
+```
+The total number of variables in the data is 160.
+
+### Remove blank values
+
+```{r}
+invColumns <- (colSums(is.na(wmTrainingComplete)) == 0)
+```
+We create a new data set `wmTraining` to which we copy only those columns from the entire training set that has no blank values. We only need to consider these columns for our classification.
+```{r}
+wmTraining1 <- wmTrainingComplete[, invColumns]
+dim(wmTraining1)
+```
+The number of variables in `wmTraining1` is now 60. 
+### Remove variables with alphabet values
+
+Now, let us find out the columns that are not numeric as they would not contribute enough to our classification process. 
+```{r}
+alphanum <- which(sapply(wmTraining1, is.numeric) == FALSE)
+alphanum
+```
+We can filter all variables except classe as it is the variable that we are trying to predict.
+```{r}
+wmTraining2 <- wmTraining1[, -c(2,5,6)]
+dim(wmTraining2)
+```
+The number of variables in `wmTraining2` is now 57. 
+
+### Remove variables with timestamps and incremental sequences
+Considering the aim of our problem, variables `X`, `raw_timestamp_part_1`, `raw_timestamp_part_2` and `num_window` do not help our prediction, as each of these variables is an incremental sequence or a timestamp.
+```{r}
+wmTraining3 <- wmTraining2[, -c(1,2,3,4)]
+dim(wmTraining3)
+```
+The total number of variables in `wmTraining3` is now 53. 
+
+### Identify near zero variance predictors
+
+Next, we identify variables that have very less variance. Their values remain almost constant throughout the data and thus do not contribute help prediction process. We identify them by using `nearZeroVar` function that can be applied only to numeric parameters. Since, the `classe` variable is not numeric, it will be eliminated.
+```{r}
+noVariance <- nearZeroVar(wmTraining3[sapply(wmTraining3, is.numeric)], saveMetrics = TRUE)
+dim(noVariance)
+```
+All the variables show `FALSE` for low variance test. Thus, the data set remains the same.
+
+
+
+### Find correlation and remove highly correlated variables
+
+Create Correlation matrix of the training data by using `cor` function and check the dimensions of the correlation matrix.
+```{r}
+correlationMatrix <- cor(wmTraining3[,-53])
+dim(correlationMatrix)
+```
+The correlation of all selected variables is shown as a square matrix.
+The level plot of the correlation matrix can be obtained by:
+```{r}
+corrDataFrame <- expand.grid(row = 1:52, col = 1:52)
+corrDataFrame$correlation <- as.vector(correlationMatrix)
+levelplot(correlation ~ row+ col, corrDataFrame, xlab="Variables", ylab="Variables")
+```
+
+
+The level plot shows the correlation among the variables. The diagonal can be ignored as it shows the correlation with itself. So, the matrix is symmetrical along the diagonal.
+
+A better view of the correlation matrix can be obtained by using corrplot with the variable names.
+```{r, corrplot, fig.height= 15, fig.width= 15  }
+corrplot(correlationMatrix, order = "FPC", method = "color", type = "lower", tl.cex = 0.8)
+```
+
+
+
+The blocks that are either dark blue or dark red indicate the pairs of variables with very high correlation.
+
+We remove those variables that have a correlation of more than 90%.
+```{r}
+correlatedVar <- findCorrelation(correlationMatrix, cutoff = .90)
+wmTraining <- wmTraining3[,-correlatedVar]
+dim(wmTraining)
+```
+After removing correlated variable, the number of variables are brought down to 46. The new training data set is now copied to `wmTraining`. Let us update the test set with the column names. The test set doesnot have have a classe variable. Thus we'll copy all the variables from the train set except the classe variable to the test set. The test set is now copied into `wmTesting` variable.
+```{r}
+wmTesting <- wmTestingComplete[,colnames(wmTraining[,-46])]
+dim(wmTesting)
+```
+###Remove the intermediate data
+We now remove the intermediate data variables.
+```{r}
+remove(wmTraining1)
+remove(wmTraining2)
+remove(wmTraining3)
+```
+
+## Training and cross validation Data Split
+
+The training data set is split to training and cross validation sets in 7:3 ratio. 70% of the data that are used for training is present in `training` variable. And 30% of the data that are used for testing is present in `testing` variable.
+
+```{r}
+inTrain <- createDataPartition(wmTraining$classe, p = 0.7, list = FALSE)
+training <- wmTraining[inTrain,]
+testing <- wmTraining[-inTrain,]
+dim(training)
+dim(testing)
+```
+
+###Random Forest Model Building
+
+Random Forest is an ensemble of classification trees which bootstrapping and aggregation.
+We use the random forest classifier with 100 trees to create our model for prediction. The random forest classifier provides uses out of bag error rate.
+```{r}
+set.seed(12345)
+rfModel <- randomForest(classe~.,data=training, ntree=100, importance=TRUE)
+rfModel
+```
+
+The out of bag error can be estimated as
+```{r}
+layout(matrix(c(1,2),nrow=1), width=c(4,1));par(mar=c(5,4,4,0));plot(rfModel, log="y");par(mar=c(5,0,4,2));plot(c(0,1),type="n", axes=F, xlab="", ylab="Error");legend("top", colnames(rfModel$err.rate),col=1:4,cex=0.8,fill=1:4)
+```
+
+The role of variables in the prediction can be interpreted using `varImpPlot`
+```{r}
+varImpPlot(rfModel,)
+```
+
+##Out of sample error estimate
+
+To calculate the out of sample error rate, we make use of the testing data set we created. This data set is evaluated against the model we built. The prediction can be performed as:
+```{r}
+rfPrediction <- predict(rfModel, testing, type="class")
+```
+The prediction can be viewed using `confusionMatrix`
+```{r}
+confuMatrix <- confusionMatrix(testing$classe, rfPrediction)
+confuMatrix$table
+```
+We calculate the accuracy of the model by using the post-resampling.
+```{r}
+accuracy <- postResample(testing$classe, rfPrediction)[1]
+accuracy
+```
+The out of sample error is the difference between the accuracy obtained and unity.
+```{r}
+oosError <- 1 - accuracy
+oosError
+```
+The accuracy of the model is `r round(accuracy*100.0,2)`% and the out-of-sample error based on the cross validation dataset is `r round(oosError*100.0,2)`%. The accuracy and the out of sample error is healthy. Hence, this model can be applied to real test set.
+
+
+## Prediction on Test Data
+We apply the model we built to predict the 20 test cases in the test data. And, here is the output we get.
+```{r}
+testOutput <- predict(rfModel, wmTesting)
+testOutput
+```
